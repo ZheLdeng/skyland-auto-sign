@@ -68,8 +68,10 @@ header_for_sign = {
     'vName': ''
 }
 
-# 签到url
+# 签到url（明日方舟）
 sign_url = "https://zonai.skland.com/api/v1/game/attendance"
+# 签到url（终末地）
+endfield_sign_url = "https://zonai.skland.com/api/v1/game/endfield/attendance"
 # 绑定的角色url
 binding_url = "https://zonai.skland.com/api/v1/game/player/binding"
 # 验证码url
@@ -287,6 +289,72 @@ def get_binding_list():
         v.extend(i.get('bindingList'))
     return v
 
+def get_endfield_binding_list():
+    v = []
+    resp = requests.get(binding_url, headers=get_sign_header(binding_url, 'get', None, http_local.header)).json()
+    if resp['code'] != 0:
+        print(f"请求终末地角色列表出现问题：{resp['message']}")
+        return []
+    for i in resp['data']['list']:
+        if i.get('appCode') != 'endfield':
+            continue
+        v.extend(i.get('bindingList', []))
+    return v
+
+
+def do_endfield_sign(cred_resp):
+    http_local.token = cred_resp['token']
+    http_local.header = header.copy()
+    http_local.header['cred'] = cred_resp['cred']
+
+    bindings = get_endfield_binding_list()
+    if not bindings:
+        print('没有找到绑定的终末地角色，跳过终末地签到')
+        return []
+
+    logs_out = []
+
+    for binding in bindings:
+        role = binding.get('defaultRole') or (binding.get('roles') and binding['roles'][0])
+        if not role:
+            continue
+        role_str = f"3_{role['roleId']}_{role['serverId']}"
+        role_name = role.get('nickname', '未知角色')
+        server_name = role.get('serverName', '未知服务器')
+
+        # 终末地签到 body 为空，签名时也用空字符串
+        p = parse.urlparse(endfield_sign_url)
+        sign, header_ca = generate_signature(http_local.token, p.path, '')
+        sign_h = http_local.header.copy()
+        sign_h['sign'] = sign
+        for k in header_ca:
+            sign_h[k] = header_ca[k]
+        sign_h['sk-game-role'] = role_str
+
+        resp = requests.post(endfield_sign_url, headers=sign_h, json=None).json()
+
+        if resp['code'] == 0:
+            award_ids = resp['data'].get('awardIds', [])
+            resource_map = resp['data'].get('resourceInfoMap', {})
+            award_text = []
+            for award in award_ids:
+                award_id = award.get('id')
+                if award_id and award_id in resource_map:
+                    res = resource_map[award_id]
+                    award_text.append(f'{res["name"]}×{res.get("count", 1)}')
+            if award_text:
+                msg = f'终末地角色{role_name}({server_name})签到成功，获得了{"、".join(award_text)}'
+            else:
+                msg = f'终末地角色{role_name}({server_name})签到成功'
+        else:
+            msg = f'终末地角色{role_name}({server_name})签到失败！原因：{resp.get("message")}'
+
+        print(msg)
+        logs_out.append(msg)
+
+    return logs_out
+
+
 def list_awards(game_id, uid):
     resp = requests.get(sign_url, headers=http_local.header, params={'gameId': game_id, 'uid': uid}).json()
     print(resp)
@@ -389,8 +457,11 @@ def start():
 
     for i in token:
         try:
-            logs_out = do_sign(get_cred_by_token(i))
+            cred_resp = get_cred_by_token(i)
+            logs_out = do_sign(cred_resp)
             all_logs.extend(logs_out)
+            endfield_logs = do_endfield_sign(cred_resp)
+            all_logs.extend(endfield_logs)
         except Exception as ex:
             err = f'签到失败，原因：{str(ex)}'
             print(err)
