@@ -455,20 +455,40 @@ def start():
     config = ConfigParser()
     file_read = config.read(config_file, encoding='utf-8')
 
+    arknights_logs = []
+    endfield_logs_all = []
+
     for i in token:
         try:
             cred_resp = get_cred_by_token(i)
             logs_out = do_sign(cred_resp)
-            all_logs.extend(logs_out)
+            arknights_logs.extend(logs_out)
             endfield_logs = do_endfield_sign(cred_resp)
-            all_logs.extend(endfield_logs)
+            endfield_logs_all.extend(endfield_logs)
         except Exception as ex:
             err = f'签到失败，原因：{str(ex)}'
             print(err)
             logging.error('', exc_info=ex)
             all_logs.append(err)
 
+    all_logs.extend(arknights_logs)
+    all_logs.extend(endfield_logs_all)
+
     print("签到完成！")
+
+    def build_desp(arknights, endfield, extra):
+        parts = []
+        parts.append('【明日方舟】')
+        parts.extend(arknights if arknights else ['无签到记录'])
+        parts.append('')
+        parts.append('【终末地】')
+        parts.extend(endfield if endfield else ['无签到记录'])
+        if extra:
+            parts.append('')
+            parts.extend(extra)
+        return '\n'.join(parts)
+
+    desp = build_desp(arknights_logs, endfield_logs_all, [l for l in all_logs if l not in arknights_logs and l not in endfield_logs_all])
 
     # === Server酱³ 推送（可选，通过环境变量控制） ===
     # 在本地或 GitHub Actions 设置：
@@ -479,8 +499,6 @@ def start():
     if sc3_sendkey:
         # 标题带日期；正文多行
         title = f'森空岛自动签到结果 - {date.today().strftime("%Y-%m-%d")}'
-        # 给 Server酱³ 的 desp，支持 Markdown，这里简单用换行拼接
-        desp = '\n'.join(all_logs) if all_logs else '今日无可用账号或无输出'
         ok, resp = push_serverchan3(sc3_sendkey, title, desp, uid=sc3_uid)
         print("[SC3] 推送成功" if ok else "[SC3] 推送失败", resp)
     else:
@@ -499,14 +517,12 @@ def start():
     QMSG_KEY = CONFIG_SECTRETS.get('QMSG_KEY', '')
     if QMSG_KEY:
         title = f'森空岛自动签到结果 - {date.today().strftime("%Y-%m-%d")}'
-        desp = '\n'.join(all_logs) if all_logs else '今日无可用账号或无输出'
         api = f'https://qmsg.zendee.cn/jsend/{QMSG_KEY}'
         payload = {
             "msg": f"{title}\n{desp}",
             "qq": "",  # 指定QQ/QQ群
             "bot": "", # 指定bot
         }
-        #print(f"{title}\n{desp}")  # 本地打印推送内容
         try:
             r = requests.post(api, json=payload, timeout=10)
             if r.status_code == 200:
@@ -519,14 +535,13 @@ def start():
         print("[Qmsg] 跳过推送：未设置环境变量 QMSG_KEY")
 
     PUSHPLUS_KEY = CONFIG_SECTRETS.get('PUSHPLUS_KEY', '')
-    if PUSHPLUS_KEY :
+    if PUSHPLUS_KEY:
         title = f'森空岛自动签到结果 - {date.today().strftime("%Y-%m-%d")}'
-        content = '\n'.join(all_logs) if all_logs else '今日无可用账号或无输出'
         api = 'http://www.pushplus.plus/send'
         payload = {
             "token": PUSHPLUS_KEY,
             "title": title,
-            "content": content,
+            "content": desp.replace('\n', '<br>'),
             "topic": "",  # 指定topic
             "template": "html"
         }
