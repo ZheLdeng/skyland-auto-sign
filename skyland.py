@@ -71,7 +71,7 @@ header_for_sign = {
 # 签到url（明日方舟）
 sign_url = "https://zonai.skland.com/api/v1/game/attendance"
 # 签到url（终末地）
-endfield_sign_url = "https://zonai.skland.com/api/v1/game/endfield/attendance"
+endfield_sign_url = "https://zonai.skland.com/web/v1/game/endfield/attendance"
 # 绑定的角色url
 binding_url = "https://zonai.skland.com/api/v1/game/player/binding"
 # 验证码url
@@ -315,42 +315,46 @@ def do_endfield_sign(cred_resp):
     logs_out = []
 
     for binding in bindings:
-        role = binding.get('defaultRole') or (binding.get('roles') and binding['roles'][0])
-        if not role:
+        roles = binding.get('roles') or []
+        if not roles:
             continue
-        role_str = f"3_{role['roleId']}_{role['serverId']}"
-        role_name = role.get('nickname', '未知角色')
-        server_name = role.get('serverName', '未知服务器')
+        for role in roles:
+            role_str = f"3_{role['roleId']}_{role['serverId']}"
+            role_name = role.get('nickname', '未知角色')
+            server_name = role.get('serverName', '未知服务器')
 
-        # 终末地签到 body 为空，签名时也用空字符串
-        p = parse.urlparse(endfield_sign_url)
-        sign, header_ca = generate_signature(http_local.token, p.path, '')
-        sign_h = http_local.header.copy()
-        sign_h['sign'] = sign
-        for k in header_ca:
-            sign_h[k] = header_ca[k]
-        sign_h['sk-game-role'] = role_str
+            # 终末地签到 body 为空，签名时也用空字符串
+            p = parse.urlparse(endfield_sign_url)
+            sign, header_ca = generate_signature(http_local.token, p.path, '')
+            sign_h = http_local.header.copy()
+            sign_h['sign'] = sign
+            for k in header_ca:
+                sign_h[k] = header_ca[k]
+            sign_h['sk-game-role'] = role_str
+            sign_h['Content-Type'] = 'application/json'
+            sign_h['referer'] = 'https://game.skland.com/'
+            sign_h['origin'] = 'https://game.skland.com/'
 
-        resp = requests.post(endfield_sign_url, headers=sign_h, json=None).json()
+            resp = requests.post(endfield_sign_url, headers=sign_h, json=None).json()
 
-        if resp['code'] == 0:
-            award_ids = resp['data'].get('awardIds', [])
-            resource_map = resp['data'].get('resourceInfoMap', {})
-            award_text = []
-            for award in award_ids:
-                award_id = award.get('id')
-                if award_id and award_id in resource_map:
-                    res = resource_map[award_id]
-                    award_text.append(f'{res["name"]}×{res.get("count", 1)}')
-            if award_text:
-                msg = f'终末地角色{role_name}({server_name})签到成功，获得了{"、".join(award_text)}'
+            if resp['code'] == 0:
+                award_ids = resp['data'].get('awardIds', [])
+                resource_map = resp['data'].get('resourceInfoMap', {})
+                award_text = []
+                for award in award_ids:
+                    award_id = award.get('id')
+                    if award_id and award_id in resource_map:
+                        res = resource_map[award_id]
+                        award_text.append(f'{res["name"]}×{res.get("count", 1)}')
+                if award_text:
+                    msg = f'终末地角色{role_name}({server_name})签到成功，获得了{"、".join(award_text)}'
+                else:
+                    msg = f'终末地角色{role_name}({server_name})签到成功'
             else:
-                msg = f'终末地角色{role_name}({server_name})签到成功'
-        else:
-            msg = f'终末地角色{role_name}({server_name})签到失败！原因：{resp.get("message")}'
+                msg = f'终末地角色{role_name}({server_name})签到失败！原因：{resp.get("message")}'
 
-        print(msg)
-        logs_out.append(msg)
+            print(msg)
+            logs_out.append(msg)
 
     return logs_out
 
